@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Resolve symlinks to find the actual script location
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+  script_path="$(readlink "$script_path")"
+  [[ $script_path != /* ]] && script_path="$script_dir/$script_path"
+done
+repo_root="$(cd -P "$(dirname "$script_path")" && pwd)"
+apps_dir="$repo_root/apps"
+
+usage() {
+  cat <<'EOF'
+Usage: setup [--verbose] <app> [install [<version>] | uninstall]
+Examples:
+  setup synology-drive-client
+  setup synology-drive-client install
+  setup synology-drive-client install v2.2.4
+  setup synology-drive-client uninstall
+EOF
+}
+
+verbose=0
+if [ "${1:-}" = "--verbose" ]; then
+  verbose=1
+  shift
+fi
+export MINIMAL_APP_MANAGER_VERBOSE="$verbose"
+
+# Special case: handle "list" command without requiring app argument
+if [ "$#" -eq 1 ] && [ "$1" = "list" ]; then
+  # list_all_apps will be called later
+  app="list"
+  app_dir=""
+else
+  if [ "$#" -lt 1 ]; then
+    usage
+    exit 1
+  fi
+
+  app="$1"
+  shift || true
+  app_dir="$apps_dir/$app"
+fi
+
+ensure_app_exists() {
+  if [ ! -d "$app_dir" ]; then
+    printf 'App "%s" not found in %s\n' "$app" "$apps_dir" >&2
+    exit 1
+  fi
+  for required in install.sh uninstall.sh version.sh; do
+    if [ ! -f "$app_dir/$required" ]; then
+      printf 'Missing %s in %s\n' "$required" "$app_dir" >&2
+      exit 1
+    fi
+  done
+}
+
+script_output=""
+run_and_capture() {
+  local script="$1"
+  shift
+  local tmp status
+  tmp=$(mktemp)
+  if [ "$verbose" -eq 1 ]; then
+    MINIMAL_APP_MANAGER_VERBOSE="$verbose" bash "$script" "$@" | tee "$tmp"
+    status=${PIPESTATUS[0]}
+  else
+    MINIMAL_APP_MANAGER_VERBOSE="$verbose" bash "$script" "$@" >"$tmp" 2>/dev/null
+    status=$?
+  fi
+  script_output="$(cat "$tmp")"
+  rm -f "$tmp"
+  return "$status"
+}
+
+script_success=0
+determine_success() {
+  local exit_status="$1"
+  local flag
+  flag=$(printf '%s\n' "$script_output" | tr -d '\r' | awk 'NF{last=$0} END{print last}')
+  flag="${flag//[[:space:]]/}"
+  if [ "$exit_status" -eq 0 ]; then
+    if [ "$flag" = "0" ]; then
+      script_success=0
+    else
+      script_success=1
+    fi
+  else
+    script_success=0
+  fi
+}
+
+app_label() {
+  local info_file="$app_dir/info.txt"
+  if [ -s "$info_file" ]; then
+    head -n1 "$info_file"
+  else
+    printf '%s\n' "$app"
+  fi
+}
+
+installed_version=""
+latest_version=""
+load_versions() {
+  run_and_capture "$app_dir/version.sh"
+  installed_version=$(printf '%s\n' "$script_output" | sed -n '1p')
+  latest_version=$(printf '%s\n' "$script_output" | sed -n '2p')
+}
+
+print_base() {
+  app_label
+  load_versions
+  if [ -n "$installed_version" ]; then
+    printf '%s installed\n' "$installed_version"
+  else
+    printf 'Currently not installed. Install with "setup %s install"\n' "$app"
+  fi
+}
+
+confirm_prompt() {
+  local prompt="$1"
+  local reply=""
+  read -r -p "$prompt " reply
+  case "$reply" in
+    y|Y) return 0 ;;
+    *) printf 'Aborted.\n' ; return 1 ;;
+  esac
+}
+
+run_uninstall_flow() {
+  local skip_base="${1:-0}"
+  if [ "$skip_base" -ne 1 ]; then
+    print_base
+  fi
+  # Ensure we have current version data in case caller skipped print_base.
+  if [ -z "$installed_version" ]; then
+    load_versions
+  fi
+  if [ -z "$installed_version" ]; then
+    return 0
+  fi
+  if ! confirm_prompt "Uninstall $installed_version? (y/n)"; then
+    return 1
+  fi
+  run_and_capture "$app_dir/uninstall.sh"
+  local exit_status=$?
+  determine_success "$exit_status"
+  if [ "$script_success" -eq 1 ]; then
+    printf 'Uninstallation successful\n'
+    return 0
+  else
+    printf 'Uninstallation unsuccessful\n'
+    return 1
+  fi
+}
+
+install_latest_without_version() {
+  run_and_capture "$app_dir/install.sh" -v
+  local exit_status=$?
+  determine_success "$exit_status"
+  if [ "$script_success" -eq 1 ]; then
+    load_versions
+    printf 'Installation successful (%s).\n' "$installed_version"
+    return 0
+  else
+    printf 'Latest version not available. Install a specific version with "setup %s install <ver>"\n' "$app"
+    return 1
+  fi
+}
+
+install_with_version() {
+  local version_to_install="$1"
+  local prompt="${2:-1}"
+  if [ "$prompt" -ne 0 ]; then
+    if ! confirm_prompt "Install $version_to_install? (y/n)"; then
+      return 1
+    fi
+  fi
+  run_and_capture "$app_dir/install.sh" -v "$version_to_install"
+  local exit_status=$?
+  determine_success "$exit_status"
+  if [ "$script_success" -eq 1 ]; then
+    printf 'Installation successful\n'
+    return 0
+  else
+    printf 'Installation unsuccessful\n'
+    return 1
+  fi
+}
+
+run_install_flow() {
+  local requested_version="$1"
+  app_label
+  load_versions
+  if [ -n "$installed_version" ]; then
+    if ! run_uninstall_flow 1; then
+      return 1
+    fi
+    installed_version=""
+  fi
+
+  if [ -z "$requested_version" ] && [ -z "$latest_version" ]; then
+    install_latest_without_version
+    return $?
+  fi
+
+  if [ -z "$requested_version" ]; then
+    local target="$latest_version"
+    if ! confirm_prompt "Install $target (latest)? (y/n)"; then
+      return 1
+    fi
+    install_with_version "$target" 0
+    return $?
+  fi
+
+  install_with_version "$requested_version"
+  return $?
+}
+
+list_all_apps() {
+  for app_subdir in "$apps_dir"/*; do
+    if [ ! -d "$app_subdir" ]; then
+      continue
+    fi
+
+    local app_name
+    app_name=$(basename "$app_subdir")
+
+    # Check if all required scripts exist
+    local all_scripts_present=1
+    for required in install.sh uninstall.sh version.sh; do
+      if [ ! -f "$app_subdir/$required" ]; then
+        all_scripts_present=0
+        break
+      fi
+    done
+
+    # If all scripts present, print status
+    if [ "$all_scripts_present" -eq 1 ]; then
+      app="$app_name"
+      app_dir="$app_subdir"
+      print_base
+      printf '\n'
+    fi
+  done
+}
+
+if [ "$app" != "list" ]; then
+  ensure_app_exists
+fi
+
+exit_code=0
+action="${1:-}"
+case "$action" in
+  "")
+    print_base
+    ;;
+  list)
+    list_all_apps
+    ;;
+  install)
+    shift || true
+    requested="${1:-}"
+    if [ "$#" -gt 1 ]; then
+      usage
+      exit 1
+    fi
+    if ! run_install_flow "$requested"; then
+      exit_code=1
+    fi
+    ;;
+  uninstall)
+    shift || true
+    if [ "$#" -gt 0 ]; then
+      usage
+      exit 1
+    fi
+    if ! run_uninstall_flow; then
+      exit_code=1
+    fi
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
+
+exit "$exit_code"
