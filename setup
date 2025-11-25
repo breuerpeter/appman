@@ -88,8 +88,10 @@ app_label() {
 print_post_install_steps() {
   local steps_file="$app_dir/post_install_steps.txt"
   if [ -s "$steps_file" ]; then
-    printf '\n'
+    printf '────────────────────────────────\n'
+    printf 'Post-install steps:\n'
     cat "$steps_file"
+    printf '────────────────────────────────\n'
   fi
 }
 
