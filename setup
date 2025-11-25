@@ -88,9 +88,10 @@ app_label() {
 installed_version=""
 latest_version=""
 load_versions() {
-  run_and_capture "$app_dir/version.sh"
-  installed_version=$(printf '%s\n' "$script_output" | sed -n '1p')
-  latest_version=$(printf '%s\n' "$script_output" | sed -n '2p')
+  local output
+  output=$(bash "$app_dir/version.sh" 2>/dev/null)
+  installed_version=$(printf '%s\n' "$output" | sed -n '1p')
+  latest_version=$(printf '%s\n' "$output" | sed -n '2p')
 }
 
 print_base() {
@@ -140,7 +141,7 @@ run_uninstall_flow() {
 }
 
 install_latest_without_version() {
-  run_and_capture "$app_dir/install.sh" -v
+  run_and_capture "$app_dir/install.sh"
   load_versions
   if [ -n "$installed_version" ]; then
     printf 'Installation successful (%s)\n' "$installed_version"
