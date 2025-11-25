@@ -65,32 +65,15 @@ run_and_capture() {
   local tmp status
   tmp=$(mktemp)
   if [ "$verbose" -eq 1 ]; then
-    MINIMAL_APP_MANAGER_VERBOSE="$verbose" bash "$script" "$@" | tee "$tmp"
+    bash "$script" "$@" | tee "$tmp"
     status=${PIPESTATUS[0]}
   else
-    MINIMAL_APP_MANAGER_VERBOSE="$verbose" bash "$script" "$@" >"$tmp" 2>/dev/null
+    bash "$script" "$@" >"$tmp" 2>/dev/null
     status=$?
   fi
   script_output="$(cat "$tmp")"
   rm -f "$tmp"
   return "$status"
-}
-
-script_success=0
-determine_success() {
-  local exit_status="$1"
-  local flag
-  flag=$(printf '%s\n' "$script_output" | tr -d '\r' | awk 'NF{last=$0} END{print last}')
-  flag="${flag//[[:space:]]/}"
-  if [ "$exit_status" -eq 0 ]; then
-    if [ "$flag" = "0" ]; then
-      script_success=0
-    else
-      script_success=1
-    fi
-  else
-    script_success=0
-  fi
 }
 
 app_label() {
@@ -146,9 +129,8 @@ run_uninstall_flow() {
     return 1
   fi
   run_and_capture "$app_dir/uninstall.sh"
-  local exit_status=$?
-  determine_success "$exit_status"
-  if [ "$script_success" -eq 1 ]; then
+  load_versions
+  if [ -z "$installed_version" ]; then
     printf 'Uninstallation successful\n'
     return 0
   else
@@ -159,11 +141,9 @@ run_uninstall_flow() {
 
 install_latest_without_version() {
   run_and_capture "$app_dir/install.sh" -v
-  local exit_status=$?
-  determine_success "$exit_status"
-  if [ "$script_success" -eq 1 ]; then
-    load_versions
-    printf 'Installation successful (%s).\n' "$installed_version"
+  load_versions
+  if [ -n "$installed_version" ]; then
+    printf 'Installation successful (%s)\n' "$installed_version"
     return 0
   else
     printf 'Latest version not available. Install a specific version with "setup %s install <ver>"\n' "$app"
@@ -180,10 +160,9 @@ install_with_version() {
     fi
   fi
   run_and_capture "$app_dir/install.sh" -v "$version_to_install"
-  local exit_status=$?
-  determine_success "$exit_status"
-  if [ "$script_success" -eq 1 ]; then
-    printf 'Installation successful\n'
+  load_versions
+  if [ -n "$installed_version" ]; then
+    printf 'Installation successful (%s)\n' "$installed_version"
     return 0
   else
     printf 'Installation unsuccessful\n'

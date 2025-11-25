@@ -9,8 +9,8 @@ Each app in the `apps/` directory must have the following structure:
 ```
 apps/
 ├── app-name/
-│   ├── install.sh      # Installation script
-│   ├── uninstall.sh    # Uninstallation script
+│   ├── install.sh      # Installation script (must be non-interactive)
+│   ├── uninstall.sh    # Uninstallation script (must be non-interactive)
 │   ├── version.sh      # Version detection script
 │   └── info.txt        # (optional) Display name for the app
 └── another-app/
