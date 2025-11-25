@@ -21,6 +21,7 @@ apps/
 - `uninstall.sh` - Uninstalls the app. Must be non-interactive.
 - `version.sh` - Prints installed version on line 1 (empty if not installed), latest version on line 2 (empty if unknown).
 - `info.txt` - (optional) Display name for the app on line 1.
+- `post_install_steps.txt` - (optional) Instructions shown after successful install or when checking status of installed app.
 
 ## Setup
 
