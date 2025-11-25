@@ -104,15 +104,25 @@ load_versions() {
 
 print_base() {
   local show_post_install="${1:-1}"
-  app_label
+  local show_short_name="${2:-0}"
+  local label
+  label=$(app_label)
   load_versions
   if [ -n "$installed_version" ]; then
-    printf '%s installed\n' "$installed_version"
+    if [ "$show_short_name" -eq 1 ]; then
+      printf '%s (%s) %s\n' "$label" "$app" "$installed_version"
+    else
+      printf '%s %s\n' "$label" "$installed_version"
+    fi
     if [ "$show_post_install" -eq 1 ]; then
       print_post_install_steps
     fi
   else
-    printf 'Currently not installed. Install with "setup %s install"\n' "$app"
+    if [ "$show_short_name" -eq 1 ]; then
+      printf '%s (%s) not installed\n' "$label" "$app"
+    else
+      printf '%s not installed\n' "$label"
+    fi
   fi
 }
 
@@ -236,8 +246,7 @@ list_all_apps() {
     if [ "$all_scripts_present" -eq 1 ]; then
       app="$app_name"
       app_dir="$app_subdir"
-      print_base 0
-      printf '\n'
+      print_base 0 1
     fi
   done
 }
