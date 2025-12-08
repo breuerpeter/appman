@@ -2,6 +2,14 @@
 
 A minimal command-line tool for managing application installations.
 
+## Prerequisites
+
+```
+sudo apt update && sudo apt upgrade
+sudo apt install curl build-essential flatpak gh
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+```
+
 ## Apps directory structure
 
 Each app in the `apps/` directory must have 4 files
