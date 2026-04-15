@@ -1,4 +1,4 @@
-# minimal-app-manager
+# appman
 
 A minimal command-line tool for managing application installations.
 
